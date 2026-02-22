@@ -1,0 +1,13 @@
+# Screen Dimensions
+WIDTH, HEIGHT = 800, 600
+FPS = 60
+
+# Physics
+GRAVITY = 0.8
+JUMP_STRENGTH = -16
+PLAYER_SPEED = 7
+
+# Colors
+WHITE = (255, 255, 255)
+BLUE = (50, 150, 255)
+GROUND_COLOR = (34, 139, 34)
