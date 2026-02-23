@@ -22,6 +22,11 @@ class Player:
         self.crouching = False
         self.attack_timer = 0
 
+    def set_spawn(self, spawn_point, respawn_now=False):
+        self.spawn_point = spawn_point
+        if respawn_now:
+            self.respawn()
+
     def set_crouch(self, should_crouch):
         target_height = PLAYER_CROUCH_HEIGHT if should_crouch and self.on_ground else PLAYER_HEIGHT
         if self.rect.height != target_height:
@@ -69,6 +74,8 @@ class Player:
         if self.on_ground:
             self.vel_y = JUMP_STRENGTH
             self.on_ground = False
+            return True
+        return False
 
     def draw(self, screen):
         shadow_w = int(self.rect.width * 1.5)

@@ -10,10 +10,12 @@ class Level:
         self.level_index = 1
         self.play_top = 72
         self.play_bottom = HEIGHT - 108
+        self.floor_y = self.play_bottom - 32
         self.platforms = []
         self.floating_platforms = []
         self.collectibles = []
         self.hazards = []
+        self.rng = random.Random()
         self.clouds = self._generate_clouds()
         self.mountains = self._generate_mountains()
         self._load_level(self.level_index)
@@ -49,19 +51,18 @@ class Level:
 
     def _load_level(self, idx):
         difficulty = max(1, min(MAX_LEVEL, idx))
-        floor_y = self.play_bottom - 32
 
         self.platforms = [
-            pygame.Rect(0, floor_y, WIDTH, 32),
+            pygame.Rect(0, self.floor_y, WIDTH, 32),
         ]
 
         self.floating_platforms = [
-            pygame.Rect(110 + difficulty * 7, floor_y - (90 + difficulty * 2), 220 - difficulty * 8, 22),
-            pygame.Rect(400 - difficulty * 5, floor_y - (146 + difficulty * 2), 238 - difficulty * 6, 22),
-            pygame.Rect(690 - difficulty * 8, floor_y - (98 + difficulty), 180 - difficulty * 4, 22),
+            pygame.Rect(110 + difficulty * 7, self.floor_y - (90 + difficulty * 2), 220 - difficulty * 8, 22),
+            pygame.Rect(400 - difficulty * 5, self.floor_y - (146 + difficulty * 2), 238 - difficulty * 6, 22),
+            pygame.Rect(690 - difficulty * 8, self.floor_y - (98 + difficulty), 180 - difficulty * 4, 22),
         ]
         if difficulty >= 4:
-            self.floating_platforms.append(pygame.Rect(510, floor_y - 208, 140, 20))
+            self.floating_platforms.append(pygame.Rect(510, self.floor_y - 208, 140, 20))
 
         self.platforms.extend(self.floating_platforms)
 
@@ -72,7 +73,7 @@ class Level:
             width = 42 + difficulty * 3
             shift = difficulty * 9 if i % 2 == 0 else -difficulty * 6
             x = max(14, min(WIDTH - width - 14, base_positions[i] + shift))
-            self.hazards.append(pygame.Rect(x, floor_y - 12, width, 12))
+            self.hazards.append(pygame.Rect(x, self.floor_y - 12, width, 12))
 
         if difficulty >= 3:
             mid = self.floating_platforms[1]
@@ -143,6 +144,107 @@ class Level:
     def get_platforms(self):
         return self.platforms
 
+    def get_lab_door_rect(self):
+        lab_main = pygame.Rect(52, self.play_bottom - 182, 206, 122)
+        return pygame.Rect(lab_main.left + 82, lab_main.bottom - 56, 44, 52)
+
+    def get_lab_door_spawn(self):
+        door = self.get_lab_door_rect()
+        return (door.centerx, self.floor_y)
+
+    def _random_platform_width(self):
+        w = 210 - self.level_index * 8 + self.rng.randint(-26, 26)
+        return max(120, min(240, w))
+
+    def _random_platform_y(self):
+        top_min = self.play_top + 74
+        top_max = self.floor_y - 74
+        if top_min >= top_max:
+            return self.floor_y - 110
+        return self.rng.randint(top_min, top_max)
+
+    def _recycle_floating_platforms(self):
+        if not self.floating_platforms:
+            return
+
+        far_right = max([WIDTH] + [plat.right for plat in self.floating_platforms])
+        for plat in self.floating_platforms:
+            if plat.right >= -40:
+                continue
+
+            gap = self.rng.randint(120, 230)
+            width = self._random_platform_width()
+            x = far_right + gap
+            y = self._random_platform_y()
+            plat.update(x, y, width, plat.height)
+            far_right = plat.right
+
+    def _recycle_hazards(self):
+        if not self.hazards:
+            return
+
+        far_right = max([WIDTH] + [hazard.right for hazard in self.hazards])
+        for hazard in self.hazards:
+            if hazard.right >= -24:
+                continue
+
+            width = 42 + self.level_index * 3 + self.rng.randint(-6, 8)
+            width = max(32, min(72, width))
+            if self.rng.random() < 0.35 and self.floating_platforms:
+                target = self.rng.choice(self.floating_platforms)
+                x = max(far_right + 70, target.centerx - width // 2)
+                y = target.top - 12
+            else:
+                x = far_right + self.rng.randint(130, 260)
+                y = self.floor_y - 12
+
+            hazard.update(int(x), int(y), width, 12)
+            far_right = hazard.right
+
+    def _respawn_collectible(self, item):
+        if item["kind"] == "core" and self.floating_platforms:
+            platform = self.rng.choice(self.floating_platforms)
+            pad = min(22, max(8, platform.width // 5))
+            if platform.width <= pad * 2:
+                x = platform.centerx
+            else:
+                x = self.rng.randint(platform.left + pad, platform.right - pad)
+            y = platform.top - 14
+            item["rect"].center = (x, y)
+        else:
+            right_edge = max([WIDTH] + [plat.right for plat in self.floating_platforms])
+            x = right_edge + self.rng.randint(40, 220)
+            item["rect"].center = (x, self.floor_y - 14)
+        item["taken"] = False
+
+    def _recycle_collectibles(self):
+        for item in self.collectibles:
+            if item["taken"] or item["rect"].right < -18:
+                self._respawn_collectible(item)
+
+    def scroll_world(self, dx):
+        if dx == 0:
+            return
+
+        for plat in self.floating_platforms:
+            plat.x += dx
+
+        for hazard in self.hazards:
+            hazard.x += dx
+
+        for item in self.collectibles:
+            item["rect"].x += dx
+
+        self.clouds = [(x + dx * 0.16, y, size) for x, y, size in self.clouds]
+        self.mountains = [
+            [(px + dx * 0.08, py) for (px, py) in tri]
+            for tri in self.mountains
+        ]
+
+        self._recycle_floating_platforms()
+        self._recycle_hazards()
+        self._recycle_collectibles()
+
     def draw_background(self, screen):
         for y in range(HEIGHT):
             t = y / max(HEIGHT - 1, 1)
@@ -197,7 +299,7 @@ class Level:
         pygame.draw.rect(screen, (28, 45, 72), annex_window, border_radius=3)
         pygame.draw.rect(screen, (132, 217, 255), annex_window.inflate(-4, -4), border_radius=2)
 
-        door = pygame.Rect(lab_main.left + 82, lab_main.bottom - 56, 44, 52)
+        door = self.get_lab_door_rect()
         pygame.draw.rect(screen, (47, 57, 81), door, border_radius=5)
         pygame.draw.rect(screen, (22, 29, 44), door, width=3, border_radius=5)
         pygame.draw.circle(screen, (230, 188, 86), (door.right - 9, door.centery), 3)
